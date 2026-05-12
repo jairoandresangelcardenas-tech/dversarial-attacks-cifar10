@@ -3,7 +3,7 @@
 **Proyecto final — Redes neuronales: arquitecturas y aplicaciones**
 Prof. Arles Rodríguez · Universidad Nacional de Colombia · 2026-I
 
-Autor: Andrés [Apellido]
+Autor: Andrés Angel
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/TU_USUARIO/TU_REPO/blob/main/proyecto_final_parte1.ipynb)
 
