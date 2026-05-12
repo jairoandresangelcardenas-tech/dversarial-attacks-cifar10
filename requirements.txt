@@ -1,0 +1,7 @@
+torch>=2.0
+torchvision>=0.15
+torchattacks>=3.5
+robustbench @ git+https://github.com/RobustBench/robustbench.git
+numpy
+matplotlib
+jupyter
