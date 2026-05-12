@@ -5,7 +5,7 @@ Prof. Arles Rodríguez · Universidad Nacional de Colombia · 2026-I
 
 Autor: Andrés Angel
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github//jairoandresangelcardenas-tech/dversarial-attacks-cifar10O/blob/main/proyecto_final_parte1.ipynb)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github//jairoandresangelcardenas-tech/dversarial-attacks-cifar10/blob/main/proyecto_final_parte1.ipynb)
 
 ---
 
