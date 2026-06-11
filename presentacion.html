@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ataques adversarios en CIFAR-10 — Andrés Ángel</title>
+<style>
+  :root{
+    --bg:#0a0e14;
+    --bg-soft:#121823;
+    --ink:#e8edf4;
+    --ink-dim:#8b97a8;
+    --line:#26303f;
+    --clean:#4ade80;     /* verde: modelo sano */
+    --attack:#ff3b5c;    /* rojo: ataque */
+    --signal:#54d2ff;    /* cian: acento de datos */
+    --warn:#ffb84d;       /* ambar */
+    --mono:'JetBrains Mono','SF Mono',ui-monospace,Menlo,monospace;
+    --sans:'Inter',system-ui,-apple-system,sans-serif;
+  }
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:var(--sans);
+    overflow:hidden;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* perturbation grain overlay */
+  body::after{
+    content:"";position:fixed;inset:0;pointer-events:none;z-index:1;opacity:.025;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  .deck{position:relative;width:100vw;height:100vh;z-index:2}
+  .slide{
+    position:absolute;inset:0;
+    padding:5.5vh 7vw;
+    display:none;
+    flex-direction:column;
+    animation:fade .45s ease;
+  }
+  .slide.active{display:flex}
+  @keyframes fade{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+
+  .eyebrow{
+    font-family:var(--mono);font-size:.72rem;letter-spacing:.32em;text-transform:uppercase;
+    color:var(--signal);margin-bottom:1.4rem;display:flex;gap:1rem;align-items:center;
+  }
+  .eyebrow::before{content:"";width:28px;height:1px;background:var(--signal)}
+
+  h1{font-size:clamp(2rem,5.5vw,4.2rem);font-weight:800;line-height:1.02;letter-spacing:-.02em}
+  h2{font-size:clamp(1.6rem,3.6vw,2.8rem);font-weight:700;line-height:1.08;letter-spacing:-.015em;margin-bottom:.4rem}
+  h2 .accent{color:var(--attack)}
+  h2 .ok{color:var(--clean)}
+  .lead{font-size:clamp(1rem,1.5vw,1.3rem);color:var(--ink-dim);font-weight:300;line-height:1.5;max-width:60ch}
+
+  .fill{flex:1;display:flex;flex-direction:column;justify-content:center}
+  .row{display:flex;gap:2.5rem;align-items:center}
+  .col{flex:1}
+
+  /* title slide */
+  .title-wrap{display:flex;flex-direction:column;justify-content:center;height:100%}
+  .title-meta{margin-top:2.5rem;font-family:var(--mono);font-size:.85rem;color:var(--ink-dim);line-height:1.9}
+  .title-meta b{color:var(--ink);font-weight:500}
+  .glitch{position:relative;display:inline-block}
+  .glitch::before,.glitch::after{
+    content:attr(data-t);position:absolute;left:0;top:0;width:100%;overflow:hidden;
+  }
+  .glitch::before{color:var(--attack);clip-path:inset(0 0 55% 0);animation:gl1 4s infinite steps(2)}
+  .glitch::after{color:var(--signal);clip-path:inset(60% 0 0 0);animation:gl2 4.6s infinite steps(2)}
+  @keyframes gl1{0%,92%,100%{transform:none}94%{transform:translate(-3px,-1px)}96%{transform:translate(2px,1px)}}
+  @keyframes gl2{0%,90%,100%{transform:none}93%{transform:translate(3px,1px)}97%{transform:translate(-2px,-1px)}}
+
+  /* big stat */
+  .stat-grid{display:flex;gap:3.5rem;flex-wrap:wrap;margin-top:1rem}
+  .stat{display:flex;flex-direction:column}
+  .stat .num{font-family:var(--mono);font-weight:700;font-size:clamp(2.4rem,6vw,4.6rem);line-height:1;letter-spacing:-.03em}
+  .stat .num.clean{color:var(--clean)}
+  .stat .num.attack{color:var(--attack)}
+  .stat .num.warn{color:var(--warn)}
+  .stat .lbl{font-family:var(--mono);font-size:.78rem;color:var(--ink-dim);margin-top:.6rem;letter-spacing:.05em;max-width:22ch}
+  .arrow{font-size:2.5rem;color:var(--ink-dim);align-self:center;font-weight:300}
+
+  /* table */
+  table{border-collapse:collapse;width:100%;font-family:var(--mono);font-size:clamp(.8rem,1.1vw,1rem)}
+  th,td{text-align:left;padding:.75rem 1rem;border-bottom:1px solid var(--line)}
+  th{color:var(--signal);font-weight:500;font-size:.72rem;letter-spacing:.12em;text-transform:uppercase}
+  td.v{text-align:right;font-weight:500}
+  .bar-cell{position:relative}
+  .bar{position:absolute;left:0;top:0;height:100%;opacity:.14;z-index:0}
+  .bar.clean{background:var(--clean)}
+  .bar.attack{background:var(--attack)}
+  td span{position:relative;z-index:1}
+
+  /* cards */
+  .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:1.4rem;margin-top:1rem}
+  .card{background:var(--bg-soft);border:1px solid var(--line);border-radius:10px;padding:1.6rem;display:flex;flex-direction:column;gap:.7rem}
+  .card .tag{font-family:var(--mono);font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;color:var(--signal)}
+  .card h3{font-size:1.15rem;font-weight:600}
+  .card p{font-size:.9rem;color:var(--ink-dim);line-height:1.5}
+  .card .formula{font-family:var(--mono);font-size:.82rem;color:var(--ink);background:#0a0e14;padding:.5rem .7rem;border-radius:6px;border:1px solid var(--line);overflow-x:auto}
+
+  /* pipeline / families */
+  .fam{display:flex;gap:1.5rem;margin-top:1.5rem}
+  .fam-box{flex:1;border:1px solid var(--line);border-radius:10px;padding:1.5rem;background:var(--bg-soft)}
+  .fam-box.evasion{border-color:rgba(84,210,255,.3)}
+  .fam-box.training{border-color:rgba(255,184,77,.3)}
+  .fam-box h3{font-size:1.2rem;margin-bottom:.3rem}
+  .fam-box .when{font-family:var(--mono);font-size:.72rem;color:var(--ink-dim);margin-bottom:1rem;letter-spacing:.05em}
+  .fam-box ul{list-style:none;display:flex;flex-direction:column;gap:.55rem}
+  .fam-box li{font-size:.92rem;display:flex;gap:.6rem;align-items:baseline}
+  .fam-box li::before{content:"▸";color:var(--signal);font-size:.8rem}
+  .fam-box.training li::before{color:var(--warn)}
+
+  /* image strip */
+  .strip{display:flex;gap:.5rem;margin-top:1.2rem}
+  .px{flex:1;aspect-ratio:1;border-radius:6px;position:relative;overflow:hidden;border:1px solid var(--line)}
+  .px canvas{width:100%;height:100%;display:block;image-rendering:pixelated}
+  .px .cap{position:absolute;bottom:0;left:0;right:0;font-family:var(--mono);font-size:.62rem;padding:3px 5px;background:rgba(10,14,20,.85);text-align:center}
+  .px .cap.bad{color:var(--attack)}
+  .px .cap.good{color:var(--clean)}
+
+  /* takeaways */
+  .takeaways{display:flex;flex-direction:column;gap:1.3rem;margin-top:1rem;max-width:75ch}
+  .tk{display:flex;gap:1.3rem;align-items:flex-start}
+  .tk .n{font-family:var(--mono);font-size:1.5rem;font-weight:700;color:var(--attack);line-height:1;min-width:2.2rem}
+  .tk .body h3{font-size:1.15rem;font-weight:600;margin-bottom:.25rem}
+  .tk .body p{font-size:.95rem;color:var(--ink-dim);line-height:1.5}
+
+  /* chart (svg) */
+  .chartwrap{margin-top:1rem;background:var(--bg-soft);border:1px solid var(--line);border-radius:10px;padding:1.5rem 1.5rem .8rem}
+
+  /* progress + nav */
+  .hud{position:fixed;bottom:0;left:0;right:0;height:46px;display:flex;align-items:center;justify-content:space-between;padding:0 2rem;font-family:var(--mono);font-size:.72rem;color:var(--ink-dim);z-index:10;border-top:1px solid var(--line);background:rgba(10,14,20,.7);backdrop-filter:blur(8px)}
+  .hud .dots{display:flex;gap:7px}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--line);cursor:pointer;transition:.25s}
+  .dot.on{background:var(--signal);transform:scale(1.3)}
+  .progress{position:fixed;top:0;left:0;height:2px;background:var(--attack);z-index:11;transition:width .4s}
+  .kbd{color:var(--ink);background:var(--bg-soft);border:1px solid var(--line);border-radius:4px;padding:1px 6px;margin:0 2px}
+
+  .pill{display:inline-block;font-family:var(--mono);font-size:.7rem;padding:.25rem .6rem;border-radius:20px;border:1px solid var(--line);color:var(--ink-dim);margin-right:.5rem}
+  .pill.ev{border-color:var(--signal);color:var(--signal)}
+  .pill.tr{border-color:var(--warn);color:var(--warn)}
+
+  .footnote{font-family:var(--mono);font-size:.7rem;color:var(--ink-dim);margin-top:1.2rem}
+
+  @media (max-width:760px){
+    .slide{padding:5vh 6vw}
+    .cards{grid-template-columns:1fr}
+    .fam{flex-direction:column}
+    .row{flex-direction:column;align-items:stretch}
+    .stat-grid{gap:1.8rem}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .slide{animation:none}
+    .glitch::before,.glitch::after{animation:none}
+  }
+</style>
+</head>
+<body>
+<div class="progress" id="progress"></div>
+<div class="deck" id="deck">
+
+  <!-- 1. TITLE -->
+  <section class="slide active">
+    <div class="title-wrap">
+      <div class="eyebrow">Proyecto Final · Redes Neuronales</div>
+      <h1>Ataques adversarios<br>sobre <span class="glitch" data-t="redes convolucionales">redes convolucionales</span></h1>
+      <p class="lead" style="margin-top:1.6rem">Cómo engañar a un clasificador con 93% de precisión usando perturbaciones que el ojo humano no puede ver — y cómo incrustar sabotaje en el entrenamiento mismo.</p>
+      <div class="title-meta">
+        <b>Andrés Ángel</b> · Universidad Nacional de Colombia<br>
+        Prof. Arles Rodríguez · CIFAR-10 · ResNet-18<br>
+        <span style="color:var(--signal)">Parte I</span> FGSM &nbsp;·&nbsp; <span style="color:var(--signal)">Parte II</span> PGD · C&amp;W · Transferibilidad &nbsp;·&nbsp; <span style="color:var(--warn)">Parte III</span> Backdoor · Poisoning
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. THE PROBLEM -->
+  <section class="slide">
+    <div class="eyebrow">El problema</div>
+    <h2>Un modelo puede acertar <span class="ok">93%</span><br>y aun así estar <span class="accent">roto</span></h2>
+    <div class="fill">
+      <p class="lead">Las redes neuronales clasifican imágenes con precisión sobrehumana, pero aprenden <b style="color:var(--ink)">features predictivas pero frágiles</b>. Un atacante que conoce el gradiente puede explotarlas.</p>
+      <div class="stat-grid">
+        <div class="stat"><span class="num clean">93.4%</span><span class="lbl">accuracy en imágenes limpias</span></div>
+        <div class="arrow">→</div>
+        <div class="stat"><span class="num attack">0.0%</span><span class="lbl">accuracy bajo ataque PGD (ε = 8/255)</span></div>
+        <div class="arrow">→</div>
+        <div class="stat"><span class="num warn">0%</span><span class="lbl">de la perturbación es visible para un humano</span></div>
+      </div>
+    </div>
+    <div class="footnote">// la misma imagen, imperceptiblemente modificada, colapsa el modelo</div>
+  </section>
+
+  <!-- 3. TWO FAMILIES -->
+  <section class="slide">
+    <div class="eyebrow">Mapa de amenazas</div>
+    <h2>Dos familias de ataque</h2>
+    <p class="lead">El proyecto cubre el panorama completo: atacar la <b style="color:var(--signal)">entrada</b> o atacar el <b style="color:var(--warn)">entrenamiento</b>.</p>
+    <div class="fam">
+      <div class="fam-box evasion">
+        <h3 style="color:var(--signal)">Evasión</h3>
+        <div class="when">EN INFERENCIA · el modelo ya está entrenado</div>
+        <ul>
+          <li><b>FGSM</b> — un paso, linealización</li>
+          <li><b>PGD</b> — iterativo, proyectado</li>
+          <li><b>C&amp;W</b> — minimiza la perturbación</li>
+          <li>Transferibilidad entre arquitecturas</li>
+        </ul>
+        <div style="margin-top:1rem"><span class="pill ev">Parte I</span><span class="pill ev">Parte II</span></div>
+      </div>
+      <div class="fam-box training">
+        <h3 style="color:var(--warn)">Entrenamiento</h3>
+        <div class="when">EN LOS DATOS · antes de entrenar el modelo</div>
+        <ul>
+          <li><b>Backdoor (BadNets)</b> — trigger oculto</li>
+          <li><b>Label-flipping</b> — etiquetas corruptas</li>
+          <li><b>Clean-label</b> — colisión en features</li>
+        </ul>
+        <div style="margin-top:1rem"><span class="pill tr">Parte III</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4. THE COMMON PROBLEM (math) -->
+  <section class="slide">
+    <div class="eyebrow">Parte I-II · Fundamento</div>
+    <h2>Todos resuelven el mismo problema</h2>
+    <div class="fill">
+      <div style="background:var(--bg-soft);border:1px solid var(--line);border-radius:12px;padding:2.5rem;text-align:center;margin-bottom:1.5rem">
+        <div style="font-family:var(--mono);font-size:clamp(1rem,2vw,1.5rem);color:var(--ink);line-height:1.8">
+          δ* = <span style="color:var(--attack)">arg max</span><sub style="color:var(--ink-dim)">‖δ‖<sub>p</sub> ≤ ε</sub> &nbsp; 𝓛( f<sub>θ</sub>(x + δ), y )
+        </div>
+        <div style="font-family:var(--mono);font-size:.8rem;color:var(--ink-dim);margin-top:1rem">encontrar la perturbación δ que maximiza la pérdida, dentro de un presupuesto ε</div>
+      </div>
+      <div class="cards">
+        <div class="card">
+          <span class="tag">FGSM</span>
+          <h3>Un paso</h3>
+          <div class="formula">δ = ε·sign(∇<sub>x</sub>𝓛)</div>
+          <p>Linealiza y salta al vértice del cubo ℓ∞. Rápido, pero subóptimo.</p>
+        </div>
+        <div class="card">
+          <span class="tag">PGD</span>
+          <h3>Iterativo</h3>
+          <div class="formula">δ<sup>t+1</sup> = Π<sub>Δ</sub>(δ<sup>t</sup> + α·sign∇)</div>
+          <p>Ascenso proyectado. El adversario de primer orden más fuerte.</p>
+        </div>
+        <div class="card">
+          <span class="tag">C&amp;W</span>
+          <h3>Mínima perturbación</h3>
+          <div class="formula">min ‖δ‖₂² + c·g(x+δ)</div>
+          <p>Invierte la pregunta: el ataque más sutil que aún funciona.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5. FGSM RESULT + visual -->
+  <section class="slide">
+    <div class="eyebrow">Parte I · Resultado</div>
+    <h2>FGSM: perturbación invisible, <span class="accent">colapso visible</span></h2>
+    <div class="row" style="flex:1">
+      <div class="col">
+        <p class="lead" style="margin-bottom:1.5rem">Con ε = 8/255 (cada pixel cambia ≤ 3% de su rango), 6 de 6 imágenes se clasifican mal. El ataque manual coincide exactamente con <span style="font-family:var(--mono);color:var(--signal)">torchattacks</span>.</p>
+        <div class="stat-grid">
+          <div class="stat"><span class="num clean">93.4%</span><span class="lbl">limpia</span></div>
+          <div class="arrow">→</div>
+          <div class="stat"><span class="num attack">16.5%</span><span class="lbl">bajo FGSM</span></div>
+        </div>
+      </div>
+      <div class="col">
+        <div class="strip" id="fgsmStrip"></div>
+        <div class="strip" id="fgsmStrip2"></div>
+        <div class="footnote" style="text-align:center">fila 1: original · fila 2: adversaria (predicción en rojo)</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6. FGSM vs PGD chart -->
+  <section class="slide">
+    <div class="eyebrow">Parte II · Comparación</div>
+    <h2>PGD encuentra lo que FGSM no ve</h2>
+    <p class="lead">Mismo presupuesto ε, ataque más inteligente. PGD destruye el modelo con perturbaciones mínimas.</p>
+    <div class="chartwrap fill" style="justify-content:center">
+      <svg id="chart" viewBox="0 0 800 360" style="width:100%;height:auto"></svg>
+    </div>
+    <div class="footnote">// con ε = 2/255, PGD ya deja el modelo en 3.3% mientras FGSM aún tiene 34%</div>
+  </section>
+
+  <!-- 7. The hierarchy + norms -->
+  <section class="slide">
+    <div class="eyebrow">Parte II · Jerarquía</div>
+    <h2>FGSM &lt; PGD ≤ C&amp;W</h2>
+    <div class="fill">
+      <table>
+        <thead><tr><th>Ataque</th><th>Norma</th><th style="text-align:right">Accuracy</th><th style="text-align:right">‖δ‖₂ medio</th><th style="text-align:right">‖δ‖∞</th></tr></thead>
+        <tbody>
+          <tr class="bar-cell"><td><span>Sin ataque</span></td><td><span>—</span></td><td class="v"><span style="color:var(--clean)">93.4%</span></td><td class="v"><span>—</span></td><td class="v"><span>—</span></td></tr>
+          <tr><td>FGSM</td><td>ℓ∞</td><td class="v">16.5%</td><td class="v">1.724</td><td class="v">0.0314</td></tr>
+          <tr><td>PGD-40</td><td>ℓ∞</td><td class="v" style="color:var(--attack)">0.0%</td><td class="v">1.365</td><td class="v">0.0314</td></tr>
+          <tr><td>C&amp;W</td><td>ℓ₂</td><td class="v" style="color:var(--attack)">0.0%</td><td class="v" style="color:var(--signal)">0.183</td><td class="v">variable</td></tr>
+        </tbody>
+      </table>
+      <p class="lead" style="margin-top:1.5rem">C&amp;W logra el <b style="color:var(--ink)">mismo colapso total</b> con una perturbación ℓ₂ <b style="color:var(--signal)">9.4× más pequeña</b> — misclassification quirúrgica, casi imperceptible.</p>
+    </div>
+  </section>
+
+  <!-- 8. Transferability -->
+  <section class="slide">
+    <div class="eyebrow">Parte II · Transferibilidad</div>
+    <h2>Los adversarios <span class="accent">viajan</span> entre modelos</h2>
+    <div class="row" style="flex:1">
+      <div class="col">
+        <p class="lead">Generamos adversarios atacando la ResNet-18 y los probamos en una CNN distinta que <b style="color:var(--ink)">nunca fue atacada</b>. Bajan su accuracy de 85% a 40%.</p>
+        <p class="lead" style="margin-top:1.2rem">Evidencia de <b style="color:var(--signal)">non-robust features</b>: los adversarios no son ruido, explotan estructura que distintas arquitecturas comparten.</p>
+      </div>
+      <div class="col">
+        <table>
+          <thead><tr><th>Adversario (vs ResNet-18)</th><th style="text-align:right">white-box</th><th style="text-align:right">transfer</th></tr></thead>
+          <tbody>
+            <tr><td>FGSM</td><td class="v" style="color:var(--attack)">16.5%</td><td class="v" style="color:var(--warn)">40.1%</td></tr>
+            <tr><td>PGD</td><td class="v" style="color:var(--attack)">0.0%</td><td class="v" style="color:var(--warn)">38.2%</td></tr>
+          </tbody>
+        </table>
+        <p class="footnote">SimpleCNN limpia: 85.5% → un ataque que no la tocó la deja en ~40%</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 9. PART III intro -->
+  <section class="slide">
+    <div class="eyebrow">Parte III · Cambio de frente</div>
+    <h2>¿Y si el ataque está en <span style="color:var(--warn)">los datos</span>?</h2>
+    <div class="fill">
+      <p class="lead" style="font-size:clamp(1.1rem,1.8vw,1.5rem)">Hasta aquí atacamos la entrada de un modelo ya entrenado. Ahora el atacante envenena el <b style="color:var(--ink)">conjunto de entrenamiento</b> — el daño queda incrustado en los pesos antes de que el modelo exista.</p>
+      <div class="fam" style="margin-top:2.5rem">
+        <div class="fam-box training"><h3 style="color:var(--warn)">Backdoor</h3><div class="when">trigger oculto → clase objetivo</div><p style="font-size:.9rem;color:var(--ink-dim)">El modelo se ve sano pero obedece una señal secreta.</p></div>
+        <div class="fam-box training"><h3 style="color:var(--warn)">Label-flipping</h3><div class="when">etiquetas corruptas</div><p style="font-size:.9rem;color:var(--ink-dim)">Degrada la precisión global. Ruidoso, detectable.</p></div>
+        <div class="fam-box training"><h3 style="color:var(--warn)">Clean-label</h3><div class="when">etiqueta correcta, imagen alterada</div><p style="font-size:.9rem;color:var(--ink-dim)">Colisión en el espacio de features. Sigiloso.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 10. BACKDOOR money slide -->
+  <section class="slide">
+    <div class="eyebrow">Parte III · Resultado estrella</div>
+    <h2>Backdoor: <span class="accent">0.5%</span> de veneno, <span class="accent">92%</span> de éxito</h2>
+    <div class="row" style="flex:1">
+      <div class="col">
+        <p class="lead">Un parche de 3×3 pixeles en 250 imágenes (de 50,000) basta para que el modelo clasifique como "avión" <b style="color:var(--ink)">cualquier</b> imagen con el trigger.</p>
+        <div class="stat-grid" style="margin-top:2rem">
+          <div class="stat"><span class="num clean">93.6%</span><span class="lbl">accuracy limpia — se ve perfectamente sano</span></div>
+          <div class="stat"><span class="num attack">97.4%</span><span class="lbl">attack success rate con el trigger</span></div>
+        </div>
+      </div>
+      <div class="col">
+        <div class="chartwrap"><svg id="bdchart" viewBox="0 0 420 320" style="width:100%;height:auto"></svg></div>
+        <div class="footnote" style="text-align:center">ASR sube · clean accuracy no se mueve = indetectable</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 11. backdoor visual + poisoning compare -->
+  <section class="slide">
+    <div class="eyebrow">Parte III · Comparación</div>
+    <h2>Sigilo vs ruido</h2>
+    <div class="row" style="flex:1">
+      <div class="col">
+        <div class="strip" id="bdStrip"></div>
+        <div class="strip" id="bdStrip2"></div>
+        <div class="footnote" style="text-align:center">arriba: limpia · abajo: con trigger → "airplane"</div>
+      </div>
+      <div class="col">
+        <table>
+          <thead><tr><th>Ataque</th><th>Detectable?</th><th style="text-align:right">Efecto</th></tr></thead>
+          <tbody>
+            <tr><td>Backdoor</td><td style="color:var(--attack)">No ✕</td><td class="v">clean intacta</td></tr>
+            <tr><td>Label-flip 40%</td><td style="color:var(--clean)">Sí ✓</td><td class="v">91%→82%</td></tr>
+            <tr><td>Clean-label</td><td style="color:var(--warn)">Difícil</td><td class="v">95% feat.</td></tr>
+          </tbody>
+        </table>
+        <p class="lead" style="margin-top:1.5rem;font-size:1rem">El backdoor es la amenaza más peligrosa precisamente porque <b style="color:var(--ink)">no degrada nada visible</b>. La validación estándar no lo detecta.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 12. TAKEAWAYS -->
+  <section class="slide">
+    <div class="eyebrow">Conclusiones</div>
+    <h2>Lo que aprendimos</h2>
+    <div class="takeaways">
+      <div class="tk"><div class="n">01</div><div class="body"><h3>La vulnerabilidad es estructural, no un bug</h3><p>FGSM→PGD→C&amp;W: a mayor sofisticación del ataque, colapso total con perturbaciones cada vez menores. No es ruido, es geometría de las fronteras de decisión.</p></div></div>
+      <div class="tk"><div class="n">02</div><div class="body"><h3>Los adversarios transfieren</h3><p>Un ataque generado contra un modelo degrada a otro que nunca tocó. Implica que ataques black-box son viables vía modelos sustitutos.</p></div></div>
+      <div class="tk"><div class="n">03</div><div class="body"><h3>El entrenamiento es un vector de ataque</h3><p>Con 0.5% de datos envenenados se incrusta un backdoor indetectable. Quien controla la cadena de datos controla el modelo.</p></div></div>
+    </div>
+    <div class="footnote" style="margin-top:1.8rem">Trabajo futuro: defensas — adversarial training · randomized smoothing · Neural Cleanse</div>
+  </section>
+
+  <!-- 13. CLOSE -->
+  <section class="slide">
+    <div class="title-wrap" style="align-items:flex-start">
+      <div class="eyebrow">Gracias</div>
+      <h1 style="font-size:clamp(2.4rem,6vw,5rem)">Preguntas<span style="color:var(--attack)">.</span></h1>
+      <p class="lead" style="margin-top:1.5rem">Código, notebook y reporte completos en el repositorio.</p>
+      <div class="title-meta">
+        <b>Andrés Ángel</b> · Universidad Nacional de Colombia<br>
+        <span style="color:var(--signal)">github.com/jairoandresangelcardenas-tech/dversarial-attacks-cifar10</span><br>
+        ResNet-18 · CIFAR-10 · PyTorch · torchattacks
+      </div>
+      <div style="margin-top:2rem">
+        <span class="pill ev">FGSM</span><span class="pill ev">PGD</span><span class="pill ev">C&amp;W</span><span class="pill tr">Backdoor</span><span class="pill tr">Poisoning</span>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<div class="hud">
+  <div><span class="kbd">←</span><span class="kbd">→</span> navegar &nbsp; · &nbsp; <span class="kbd">F</span> pantalla completa</div>
+  <div class="dots" id="dots"></div>
+  <div id="counter">01 / 13</div>
+</div>
+
+<script>
+const slides=[...document.querySelectorAll('.slide')];
+const dotsBox=document.getElementById('dots');
+const counter=document.getElementById('counter');
+const progress=document.getElementById('progress');
+let i=0, drawn={};
+
+slides.forEach((_,k)=>{
+  const d=document.createElement('div');d.className='dot'+(k===0?' on':'');
+  d.onclick=()=>go(k);dotsBox.appendChild(d);
+});
+const dots=[...document.querySelectorAll('.dot')];
+
+function go(n){
+  i=Math.max(0,Math.min(slides.length-1,n));
+  slides.forEach((s,k)=>s.classList.toggle('active',k===i));
+  dots.forEach((d,k)=>d.classList.toggle('on',k===i));
+  counter.textContent=String(i+1).padStart(2,'0')+' / '+String(slides.length).padStart(2,'0');
+  progress.style.width=((i+1)/slides.length*100)+'%';
+  if(!drawn[i]){drawn[i]=true;render(i);}
+}
+document.addEventListener('keydown',e=>{
+  if(e.key==='ArrowRight'||e.key===' ')go(i+1);
+  else if(e.key==='ArrowLeft')go(i-1);
+  else if(e.key==='f'||e.key==='F'){if(!document.fullscreenElement)document.documentElement.requestFullscreen();else document.exitFullscreen();}
+  else if(e.key==='Home')go(0);
+  else if(e.key==='End')go(slides.length-1);
+});
+// touch
+let tx=0;
+document.addEventListener('touchstart',e=>tx=e.touches[0].clientX,{passive:true});
+document.addEventListener('touchend',e=>{const dx=e.changedTouches[0].clientX-tx;if(Math.abs(dx)>50)go(i+(dx<0?1:-1));},{passive:true});
+
+progress.style.width=(1/slides.length*100)+'%';
+
+// ---------- pixel-art renderers (synthetic CIFAR-like thumbnails) ----------
+function noiseCanvas(parent,cap,capClass,kind){
+  const wrap=document.createElement('div');wrap.className='px';
+  const c=document.createElement('canvas');c.width=32;c.height=32;
+  const x=c.getContext('2d');const im=x.createImageData(32,32);
+  for(let p=0;p<32*32;p++){
+    const px=p%32, py=(p/32)|0;
+    let r,g,b;
+    if(kind==='sky'){r=90+Math.random()*40;g=130+Math.random()*50;b=180+Math.random()*60;}
+    else if(kind==='animal'){const base=80+Math.random()*60;r=base+30;g=base+10;b=base-10;}
+    else if(kind==='ship'){r=70+Math.random()*40;g=90+Math.random()*40;b=110+Math.random()*50;}
+    else if(kind==='pert'){const v=Math.random()*255;r=v;g=Math.random()*255;b=Math.random()*255;}
+    else{r=g=b=Math.random()*255;}
+    im.data[p*4]=r;im.data[p*4+1]=g;im.data[p*4+2]=b;im.data[p*4+3]=255;
+  }
+  x.putImageData(im,0,0);
+  wrap.appendChild(c);
+  if(cap){const cp=document.createElement('div');cp.className='cap '+(capClass||'');cp.textContent=cap;wrap.appendChild(cp);}
+  parent.appendChild(wrap);
+  return {ctx:x};
+}
+function trigger(ctx){ctx.fillStyle='#fff';ctx.fillRect(27,27,5,5);}
+
+function render(n){
+  if(n===4){ // FGSM strip
+    const s1=document.getElementById('fgsmStrip'),s2=document.getElementById('fgsmStrip2');
+    if(s1.children.length)return;
+    const orig=[['cat','animal'],['ship','ship'],['plane','sky'],['frog','animal'],['ship','ship'],['cat','animal']];
+    const adv=['dog','plane','ship','bird','frog','dog'];
+    orig.forEach((o,k)=>noiseCanvas(s1,o[0],'',o[1]));
+    orig.forEach((o,k)=>noiseCanvas(s2,'→ '+adv[k],'bad',o[1]));
+  }
+  if(n===5)drawChart();
+  if(n===9)drawBackdoor();
+  if(n===10){
+    const s1=document.getElementById('bdStrip'),s2=document.getElementById('bdStrip2');
+    if(s1.children.length)return;
+    const orig=[['dog','animal'],['cat','animal'],['ship','ship'],['horse','animal'],['bird','sky'],['truck','ship']];
+    orig.forEach(o=>noiseCanvas(s1,o[0],'good',o[1]));
+    orig.forEach(o=>{const r=noiseCanvas(s2,'airplane','bad',o[1]);trigger(r.ctx);});
+  }
+}
+
+function drawChart(){
+  const svg=document.getElementById('chart');
+  const W=800,H=360,pad={l:60,r:30,t:25,b:55};
+  const eps=[0,1,2,4,8,16];
+  const fgsm=[93.4,53.95,34.13,23.03,16.49,10.91];
+  const pgd=[93.4,35.08,3.28,0.03,0,0];
+  const xmax=16,ymax=100;
+  const X=v=>pad.l+(v/xmax)*(W-pad.l-pad.r);
+  const Y=v=>pad.t+(1-v/ymax)*(H-pad.t-pad.b);
+  let g='';
+  // grid
+  for(let gy=0;gy<=100;gy+=25){g+=`<line x1="${pad.l}" y1="${Y(gy)}" x2="${W-pad.r}" y2="${Y(gy)}" stroke="#26303f" stroke-width="1"/>`;
+    g+=`<text x="${pad.l-10}" y="${Y(gy)+4}" fill="#8b97a8" font-size="12" text-anchor="end" font-family="monospace">${gy}</text>`;}
+  eps.forEach(e=>{g+=`<text x="${X(e)}" y="${H-pad.b+22}" fill="#8b97a8" font-size="12" text-anchor="middle" font-family="monospace">${e}</text>`;});
+  g+=`<text x="${(W)/2}" y="${H-8}" fill="#8b97a8" font-size="12" text-anchor="middle" font-family="monospace">ε (escala 0–255)</text>`;
+  // eps=8 marker
+  g+=`<line x1="${X(8)}" y1="${pad.t}" x2="${X(8)}" y2="${H-pad.b}" stroke="#ff3b5c" stroke-width="1" stroke-dasharray="4 4" opacity="0.5"/>`;
+  g+=`<text x="${X(8)+6}" y="${pad.t+14}" fill="#ff3b5c" font-size="11" font-family="monospace">ε=8/255</text>`;
+  function path(data,color,dash){
+    let d='';data.forEach((v,k)=>{d+=(k?'L':'M')+X(eps[k])+' '+Y(v)+' ';});
+    let s=`<path d="${d}" fill="none" stroke="${color}" stroke-width="2.5" ${dash?'stroke-dasharray="6 4"':''}/>`;
+    data.forEach((v,k)=>{s+=`<circle cx="${X(eps[k])}" cy="${Y(v)}" r="4.5" fill="${color}"/>`;});
+    return s;
+  }
+  g+=path(fgsm,'#54d2ff',false);
+  g+=path(pgd,'#ff3b5c',false);
+  // legend
+  g+=`<circle cx="${W-180}" cy="40" r="5" fill="#54d2ff"/><text x="${W-168}" y="44" fill="#e8edf4" font-size="13" font-family="monospace">FGSM</text>`;
+  g+=`<circle cx="${W-180}" cy="62" r="5" fill="#ff3b5c"/><text x="${W-168}" y="66" fill="#e8edf4" font-size="13" font-family="monospace">PGD-40</text>`;
+  svg.innerHTML=g;
+}
+
+function drawBackdoor(){
+  const svg=document.getElementById('bdchart');
+  const W=420,H=320,pad={l:48,r:48,t:20,b:48};
+  const pr=[0.1,0.5,1,5,10];
+  const asr=[60.71,92.54,93.80,96.86,97.48];
+  const ca=[90.95,91.45,90.20,90.22,90.35];
+  const xs=pr.map(p=>Math.log10(p));
+  const xmin=Math.log10(0.1),xmax=Math.log10(10);
+  const X=v=>pad.l+((v-xmin)/(xmax-xmin))*(W-pad.l-pad.r);
+  const Y=v=>pad.t+(1-v/100)*(H-pad.t-pad.b);
+  let g='';
+  for(let gy=0;gy<=100;gy+=25){g+=`<line x1="${pad.l}" y1="${Y(gy)}" x2="${W-pad.r}" y2="${Y(gy)}" stroke="#26303f"/>`;
+    g+=`<text x="${pad.l-8}" y="${Y(gy)+4}" fill="#8b97a8" font-size="10" text-anchor="end" font-family="monospace">${gy}</text>`;}
+  pr.forEach(p=>{g+=`<text x="${X(Math.log10(p))}" y="${H-pad.b+20}" fill="#8b97a8" font-size="10" text-anchor="middle" font-family="monospace">${p}%</text>`;});
+  function path(data,color,dash){let d='';data.forEach((v,k)=>{d+=(k?'L':'M')+X(xs[k])+' '+Y(v)+' ';});
+    let s=`<path d="${d}" fill="none" stroke="${color}" stroke-width="2.5" ${dash?'stroke-dasharray="5 4"':''}/>`;
+    data.forEach((v,k)=>s+=`<circle cx="${X(xs[k])}" cy="${Y(v)}" r="4" fill="${color}"/>`);return s;}
+  g+=path(asr,'#ff3b5c',false);
+  g+=path(ca,'#54d2ff',true);
+  g+=`<circle cx="${pad.l+8}" cy="14" r="4" fill="#ff3b5c"/><text x="${pad.l+18}" y="18" fill="#e8edf4" font-size="11" font-family="monospace">ASR</text>`;
+  g+=`<circle cx="${pad.l+78}" cy="14" r="4" fill="#54d2ff"/><text x="${pad.l+88}" y="18" fill="#e8edf4" font-size="11" font-family="monospace">clean</text>`;
+  svg.innerHTML=g;
+}
+</script>
+</body>
+</html>
