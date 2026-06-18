@@ -69,7 +69,7 @@ Los tres ataques de evasión son aproximaciones distintas a este problema:
 
 | Modelo | Limpia | FGSM | PGD-40 | C&W | AutoAttack |
 |---|---|---|---|---|---|
-| ResNet-18 estándar | 93.60% | 18.49% | 0.00% | 0.00% | 0.00% |
+| ResNet-18 estándar | 93.46% | 15.84% | 0.00% | 0.00% | 0.00% |
 
 Se confirma la jerarquía de fortaleza **FGSM < PGD ≤ C&W ≤ AutoAttack**. La implementación manual de FGSM y PGD coincide con `torchattacks`. AutoAttack (ensemble estándar de RobustBench: APGD-CE, APGD-DLR, FAB, Square Attack) confirma ser el ataque más fuerte; FGSM y PGD se evalúan sobre el test set completo, C&W y AutoAttack sobre un subset de 1000 imágenes.
 
@@ -77,20 +77,20 @@ Se confirma la jerarquía de fortaleza **FGSM < PGD ≤ C&W ≤ AutoAttack**. La
 
 | ε (escala 0–255) | Accuracy |
 |---|---|
-| 0 (limpia) | 93.60% |
-| 1/255 | 53.73% |
-| 2/255 | 34.75% |
-| 4/255 | 23.79% |
-| 8/255 (estándar) | 18.49% |
-| 16/255 | 12.16% |
+| 0 (limpia) | 93.46% |
+| 1/255 | 53.85% |
+| 2/255 | 33.64% |
+| 4/255 | 21.45% |
+| 8/255 (estándar) | 15.84% |
+| 16/255 | 11.65% |
 
 **Análisis de norma de perturbación (subset 1000):**
 
 | Ataque | ‖δ‖₂ medio | ‖δ‖∞ medio |
 |---|---|---|
 | FGSM | 1.724 | 0.0314 |
-| PGD-40 | 1.363 | 0.0314 |
-| C&W | 0.184 | variable |
+| PGD-40 | 1.373 | 0.0314 |
+| C&W | 0.187 | variable |
 
 C&W logra misclassification total con una perturbación ℓ₂ ~9× menor que FGSM.
 
@@ -98,10 +98,10 @@ C&W logra misclassification total con una perturbación ℓ₂ ~9× menor que FG
 
 | Adversario | White-box (ResNet-18) | Transfer (SimpleCNN) |
 |---|---|---|
-| FGSM | 18.49% | 42.35% |
-| PGD | 0.00% | 37.71% |
+| FGSM | 15.84% | 41.53% |
+| PGD | 0.00% | 40.25% |
 
-Los adversarios transfieren parcialmente (SimpleCNN limpia: 85.74%), evidencia de *non-robust features*.
+Los adversarios transfieren parcialmente (SimpleCNN limpia: 84.75%), evidencia de *non-robust features*.
 
 ### Parte III — Ataques en entrenamiento
 
@@ -109,11 +109,11 @@ Los adversarios transfieren parcialmente (SimpleCNN limpia: 85.74%), evidencia d
 
 | Envenenamiento | Clean accuracy | Attack Success Rate |
 |---|---|---|
-| 0.1% | 90.30% | 1.53% |
-| 0.5% | 90.77% | 91.92% |
-| 1.0% | 90.73% | 93.19% |
-| 5.0% | 90.69% | 97.00% |
-| 10.0% | 89.92% | 97.73% |
+| 0.1% | 91.72% | 73.64% |
+| 0.5% | 91.01% | 91.21% |
+| 1.0% | 90.99% | 93.69% |
+| 5.0% | 91.02% | 97.27% |
+| 10.0% | 89.95% | 97.31% |
 
 Con solo 0.5% de envenenamiento se logra >91% de ASR manteniendo la clean accuracy intacta — el backdoor es prácticamente indetectable por validación estándar.
 
@@ -121,12 +121,14 @@ Con solo 0.5% de envenenamiento se logra >91% de ASR manteniendo la clean accura
 
 | Etiquetas volteadas | Clean accuracy |
 |---|---|
-| 0% | 90.14% |
-| 10% | 89.34% |
-| 20% | 87.94% |
-| 40% | 82.66% |
+| 0% | 91.00% |
+| 10% | 89.55% |
+| 20% | 88.24% |
+| 40% | 75.80% |
 
-**Clean-label (Poison Frogs):** la muestra envenenada (etiqueta correcta) se acerca 92% al objetivo en el espacio de features, con perturbación visual moderada (ℓ₂ = 0.99).
+**Clean-label (Poison Frogs):** la muestra envenenada (etiqueta correcta) se acerca 93% al objetivo en el espacio de features, con perturbación visual moderada (ℓ₂ = 1.02).
+
+**Clean-label end-to-end (transfer-learning):** en el escenario de fine-tuning con extractor congelado, el ataque completo logró una tasa de éxito del **50% (5/10 objetivos)** manteniendo la clean accuracy intacta (90.8% vs 92.3%). Contraste con el backdoor: más sigiloso (etiquetas correctas, indetectable por inspección) pero menos confiable.
 
 ## Conclusión
 
